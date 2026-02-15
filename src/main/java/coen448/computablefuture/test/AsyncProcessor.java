@@ -36,5 +36,40 @@ public class AsyncProcessor {
             .thenApply(v -> completionOrder);
         
     }
-    
+
+    /**
+     * TASK A: Fail-Fast Policy (Atomic)
+     * 
+     * If any microservice invocation fails, the entire operation fails immediately.
+     * No partial result is produced. The exception propagates to the caller.
+     * 
+     * Use Case: Correctness-critical systems where partial results are invalid
+     * (e.g., financial transactions, database operations requiring atomicity)
+     * 
+     * @param services List of microservices to invoke
+     * @param messages List of messages, one per service (must match services list size)
+     * @return CompletableFuture containing space-separated results from all services
+     * @throws RuntimeException if any service fails (propagated through CompletableFuture)
+     */
+    public CompletableFuture<String> processAsyncFailFast(
+            List<Microservice> services,
+            List<String> messages) {
+        
+        if (services.size() != messages.size()) {
+            return CompletableFuture.failedFuture(
+                new IllegalArgumentException("Services and messages lists must have the same size"));
+        }
+        
+        // Create a future for each service-message pair
+        List<CompletableFuture<String>> futures = java.util.stream.IntStream.range(0, services.size())
+            .mapToObj(i -> services.get(i).retrieveAsync(messages.get(i)))
+            .collect(Collectors.toList());
+        
+        // allOf() will fail fast if any future completes exceptionally
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+            .thenApply(v -> futures.stream()
+                .map(CompletableFuture::join)  // join() will propagate any exception
+                .collect(Collectors.joining(" ")));
+    }
+
 }
