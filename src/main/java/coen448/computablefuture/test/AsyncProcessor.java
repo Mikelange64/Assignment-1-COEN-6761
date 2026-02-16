@@ -110,4 +110,47 @@ public class AsyncProcessor {
                 .filter(result -> result != null)  // Filter out failed services
                 .collect(Collectors.toList()));
     }
+
+    /**
+     * TASK C: Fail-Soft Policy (Fallback)
+     * 
+     * All failures are replaced with a predefined fallback value. 
+     * The computation never fails and always produces a complete result.
+     * 
+     * Use Case: High-availability systems where degraded output is acceptable
+     * (e.g., recommendation systems, content delivery, caching layers)
+     * 
+     * WARNING: This policy masks failures and may hide serious errors.
+     * - Failures are not reported to the caller
+     * - Debugging becomes harder as errors are silently replaced
+     * - Service degradation may go unnoticed
+     * - Should be combined with proper monitoring and alerting
+     * 
+     * @param services List of microservices to invoke
+     * @param messages List of messages, one per service (must match services list size)
+     * @param fallbackValue Value to use when a service fails
+     * @return CompletableFuture containing space-separated results (with fallbacks for failures)
+     */
+    public CompletableFuture<String> processAsyncFailSoft(
+            List<Microservice> services,
+            List<String> messages,
+            String fallbackValue) {
+        
+        if (services.size() != messages.size()) {
+            return CompletableFuture.failedFuture(
+                new IllegalArgumentException("Services and messages lists must have the same size"));
+        }
+        
+        // Create futures that replace exceptions with fallback value
+        List<CompletableFuture<String>> futures = java.util.stream.IntStream.range(0, services.size())
+            .mapToObj(i -> services.get(i).retrieveAsync(messages.get(i))
+                .exceptionally(ex -> fallbackValue))  // Replace failure with fallback
+            .collect(Collectors.toList());
+        
+        // All futures will complete normally (no exceptions)
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+            .thenApply(v -> futures.stream()
+                .map(CompletableFuture::join)
+                .collect(Collectors.joining(" ")));
+    }
 }
