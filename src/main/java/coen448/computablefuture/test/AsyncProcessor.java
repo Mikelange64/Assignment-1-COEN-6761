@@ -110,5 +110,4 @@ public class AsyncProcessor {
                 .filter(result -> result != null)  // Filter out failed services
                 .collect(Collectors.toList()));
     }
-
 }
