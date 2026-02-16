@@ -198,4 +198,150 @@ public class AsyncProcessorTest {
         
         assertTrue(exception.getCause() instanceof IllegalArgumentException);
     }
+    // ============================================================================
+    // TASK B: FAIL-PARTIAL POLICY TESTS
+    // ============================================================================
+    
+    /**
+     * Test: All services succeed
+     * Expected: All results returned in list
+     */
+    @Test
+    public void testFailPartial_allServicesSucceed() throws Exception {
+        Microservice s1 = new Microservice("Service1");
+        Microservice s2 = new Microservice("Service2");
+        Microservice s3 = new Microservice("Service3");
+        
+        AsyncProcessor processor = new AsyncProcessor();
+        
+        CompletableFuture<List<String>> result = processor.processAsyncFailPartial(
+            List.of(s1, s2, s3),
+            List.of("msg1", "msg2", "msg3")
+        );
+        
+        List<String> output = result.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertEquals(3, output.size());
+        assertTrue(output.contains("Service1:MSG1"));
+        assertTrue(output.contains("Service2:MSG2"));
+        assertTrue(output.contains("Service3:MSG3"));
+    }
+    
+    /**
+     * Test: One service fails
+     * Expected: Only successful results returned, no exception
+     */
+    @Test
+    public void testFailPartial_oneServiceFails() throws Exception {
+        Microservice s1 = new Microservice("Service1");
+        Microservice s2 = new Microservice("Service2", true, "Service2 failed");
+        Microservice s3 = new Microservice("Service3");
+        
+        AsyncProcessor processor = new AsyncProcessor();
+        
+        CompletableFuture<List<String>> result = processor.processAsyncFailPartial(
+            List.of(s1, s2, s3),
+            List.of("msg1", "msg2", "msg3")
+        );
+        
+        // Should complete normally (no exception)
+        List<String> output = result.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        
+        // Only 2 successful results
+        assertEquals(2, output.size());
+        assertTrue(output.contains("Service1:MSG1"));
+        assertTrue(output.contains("Service3:MSG3"));
+        assertFalse(output.stream().anyMatch(s -> s.startsWith("Service2:")));
+    }
+    
+    /**
+     * Test: First service fails
+     * Expected: Remaining successful results returned
+     */
+    @Test
+    public void testFailPartial_firstServiceFails() throws Exception {
+        Microservice s1 = new Microservice("Service1", true, "Service1 failed");
+        Microservice s2 = new Microservice("Service2");
+        Microservice s3 = new Microservice("Service3");
+        
+        AsyncProcessor processor = new AsyncProcessor();
+        
+        CompletableFuture<List<String>> result = processor.processAsyncFailPartial(
+            List.of(s1, s2, s3),
+            List.of("msg1", "msg2", "msg3")
+        );
+        
+        List<String> output = result.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        
+        assertEquals(2, output.size());
+        assertTrue(output.contains("Service2:MSG2"));
+        assertTrue(output.contains("Service3:MSG3"));
+    }
+    
+    /**
+     * Test: Multiple services fail
+     * Expected: Only successful results returned
+     */
+    @Test
+    public void testFailPartial_multipleServicesFail() throws Exception {
+        Microservice s1 = new Microservice("Service1", true, "Service1 failed");
+        Microservice s2 = new Microservice("Service2");
+        Microservice s3 = new Microservice("Service3", true, "Service3 failed");
+        
+        AsyncProcessor processor = new AsyncProcessor();
+        
+        CompletableFuture<List<String>> result = processor.processAsyncFailPartial(
+            List.of(s1, s2, s3),
+            List.of("msg1", "msg2", "msg3")
+        );
+        
+        List<String> output = result.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        
+        // Only Service2 succeeds
+        assertEquals(1, output.size());
+        assertEquals("Service2:MSG2", output.get(0));
+    }
+    
+    /**
+     * Test: All services fail
+     * Expected: Empty list returned, no exception
+     */
+    @Test
+    public void testFailPartial_allServicesFail() throws Exception {
+        Microservice s1 = new Microservice("Service1", true, "Service1 failed");
+        Microservice s2 = new Microservice("Service2", true, "Service2 failed");
+        Microservice s3 = new Microservice("Service3", true, "Service3 failed");
+        
+        AsyncProcessor processor = new AsyncProcessor();
+        
+        CompletableFuture<List<String>> result = processor.processAsyncFailPartial(
+            List.of(s1, s2, s3),
+            List.of("msg1", "msg2", "msg3")
+        );
+        
+        // Should complete normally with empty list
+        List<String> output = result.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertEquals(0, output.size());
+    }
+    
+    /**
+     * Test: Invalid input (mismatched list sizes)
+     * Expected: Exception
+     */
+    @Test
+    public void testFailPartial_invalidInput_mismatchedLists() {
+        Microservice s1 = new Microservice("Service1");
+        
+        AsyncProcessor processor = new AsyncProcessor();
+        
+        CompletableFuture<List<String>> result = processor.processAsyncFailPartial(
+            List.of(s1),
+            List.of("msg1", "msg2")  // More messages than services
+        );
+        
+        ExecutionException exception = assertThrows(ExecutionException.class, () -> {
+            result.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        });
+        
+        assertTrue(exception.getCause() instanceof IllegalArgumentException);
+    }
 }
