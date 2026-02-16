@@ -72,4 +72,43 @@ public class AsyncProcessor {
                 .collect(Collectors.joining(" ")));
     }
 
+    /**
+     * TASK B: Fail-Partial Policy (Best-Effort)
+     * 
+     * Successful microservice invocations return results, while failed invocations 
+     * are silently skipped. The operation completes normally with partial results.
+     * 
+     * Use Case: Dashboards, analytics, or aggregation where partial results are useful
+     * (e.g., loading multiple widgets on a dashboard, some failures are acceptable)
+     * 
+     * Implementation Note: We use exceptionally() to handle failures per service,
+     * returning null for failed services, then filter out nulls from final results.
+     * 
+     * @param services List of microservices to invoke
+     * @param messages List of messages, one per service (must match services list size)
+     * @return CompletableFuture containing list of successful results only
+     */
+    public CompletableFuture<List<String>> processAsyncFailPartial(
+            List<Microservice> services,
+            List<String> messages) {
+        
+        if (services.size() != messages.size()) {
+            return CompletableFuture.failedFuture(
+                new IllegalArgumentException("Services and messages lists must have the same size"));
+        }
+        
+        // Create futures that handle exceptions individually
+        List<CompletableFuture<String>> futures = java.util.stream.IntStream.range(0, services.size())
+            .mapToObj(i -> services.get(i).retrieveAsync(messages.get(i))
+                .exceptionally(ex -> null))  // Convert failures to null
+            .collect(Collectors.toList());
+        
+        // Wait for all futures (none will fail since we handle exceptions)
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+            .thenApply(v -> futures.stream()
+                .map(CompletableFuture::join)
+                .filter(result -> result != null)  // Filter out failed services
+                .collect(Collectors.toList()));
+    }
+
 }
