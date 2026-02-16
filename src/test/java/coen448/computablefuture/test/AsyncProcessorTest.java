@@ -507,4 +507,166 @@ public class AsyncProcessorTest {
         
         assertTrue(exception.getCause() instanceof IllegalArgumentException);
     }
+
+    // ============================================================================
+    // LIVENESS TESTS - Verify no deadlocks or infinite waits
+    // ============================================================================
+    
+    /**
+     * Test: Fail-Fast completes within timeout
+     * Expected: No deadlock, operation completes or fails within time limit
+     */
+    @Test
+    public void testLiveness_failFastCompletesWithinTimeout() {
+        Microservice s1 = new Microservice("Service1");
+        Microservice s2 = new Microservice("Service2", true, "Failure");
+        
+        AsyncProcessor processor = new AsyncProcessor();
+        
+        CompletableFuture<String> result = processor.processAsyncFailFast(
+            List.of(s1, s2),
+            List.of("msg1", "msg2")
+        );
+        
+        // Should complete (with exception) within timeout
+        assertThrows(ExecutionException.class, () -> {
+            result.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        });
+    }
+    
+    /**
+     * Test: Fail-Partial completes within timeout
+     * Expected: No deadlock, always completes within time limit
+     */
+    @Test
+    public void testLiveness_failPartialCompletesWithinTimeout() throws Exception {
+        Microservice s1 = new Microservice("Service1");
+        Microservice s2 = new Microservice("Service2", true, "Failure");
+        Microservice s3 = new Microservice("Service3");
+        
+        AsyncProcessor processor = new AsyncProcessor();
+        
+        CompletableFuture<List<String>> result = processor.processAsyncFailPartial(
+            List.of(s1, s2, s3),
+            List.of("msg1", "msg2", "msg3")
+        );
+        
+        // Should complete successfully within timeout
+        List<String> output = result.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertNotNull(output);
+    }
+    
+    /**
+     * Test: Fail-Soft completes within timeout
+     * Expected: No deadlock, always completes within time limit
+     */
+    @Test
+    public void testLiveness_failSoftCompletesWithinTimeout() throws Exception {
+        Microservice s1 = new Microservice("Service1", true, "Failure1");
+        Microservice s2 = new Microservice("Service2", true, "Failure2");
+        
+        AsyncProcessor processor = new AsyncProcessor();
+        
+        CompletableFuture<String> result = processor.processAsyncFailSoft(
+            List.of(s1, s2),
+            List.of("msg1", "msg2"),
+            "FALLBACK"
+        );
+        
+        // Should complete successfully within timeout
+        String output = result.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertNotNull(output);
+    }
+    
+    /**
+     * Test: Large number of concurrent services
+     * Expected: System handles high concurrency without deadlock
+     */
+    @Test
+    public void testLiveness_highConcurrency() throws Exception {
+        // Create 50 services, half of which fail
+        List<Microservice> services = new java.util.ArrayList<>();
+        List<String> messages = new java.util.ArrayList<>();
+        
+        for (int i = 0; i < 50; i++) {
+            boolean shouldFail = (i % 2 == 0);
+            services.add(new Microservice("S" + i, shouldFail, "Failure " + i));
+            messages.add("msg" + i);
+        }
+        
+        AsyncProcessor processor = new AsyncProcessor();
+        
+        // Test Fail-Partial with high concurrency
+        CompletableFuture<List<String>> partialResult = processor.processAsyncFailPartial(
+            services, messages
+        );
+        
+        List<String> output = partialResult.get(5, TimeUnit.SECONDS);
+        assertEquals(25, output.size());  // Only successful half
+    }
+    
+    // ============================================================================
+    // NONDETERMINISM TESTS - Observe completion order variance
+    // ============================================================================
+    
+    /**
+     * Test: Completion order varies across runs
+     * Expected: Different orderings observed due to jitter
+     * 
+     * Note: This test OBSERVES nondeterminism but does NOT assert a specific order.
+     * The jitter in Microservice (0-30ms) causes different completion orders.
+     */
+    @RepeatedTest(10)
+    public void testNondeterminism_failPartialCompletionOrderVaries() throws Exception {
+        Microservice s1 = new Microservice("Alpha");
+        Microservice s2 = new Microservice("Beta");
+        Microservice s3 = new Microservice("Gamma");
+        Microservice s4 = new Microservice("Delta");
+        
+        AsyncProcessor processor = new AsyncProcessor();
+        
+        CompletableFuture<List<String>> result = processor.processAsyncFailPartial(
+            List.of(s1, s2, s3, s4),
+            List.of("x", "x", "x", "x")
+        );
+        
+        List<String> output = result.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        
+        // Print to observe different orderings (not asserted)
+        System.out.println("Fail-Partial completion order: " + output);
+        
+        // Verify all services completed
+        assertEquals(4, output.size());
+        assertTrue(output.stream().anyMatch(s -> s.startsWith("Alpha:")));
+        assertTrue(output.stream().anyMatch(s -> s.startsWith("Beta:")));
+        assertTrue(output.stream().anyMatch(s -> s.startsWith("Gamma:")));
+        assertTrue(output.stream().anyMatch(s -> s.startsWith("Delta:")));
+    }
+    
+    /**
+     * Test: Nondeterminism with failures
+     * Expected: Successful services complete in varying order
+     */
+    @RepeatedTest(10)
+    public void testNondeterminism_withFailures() throws Exception {
+        Microservice s1 = new Microservice("S1");
+        Microservice s2 = new Microservice("S2", true, "Fail");
+        Microservice s3 = new Microservice("S3");
+        Microservice s4 = new Microservice("S4");
+        
+        AsyncProcessor processor = new AsyncProcessor();
+        
+        CompletableFuture<List<String>> result = processor.processAsyncFailPartial(
+            List.of(s1, s2, s3, s4),
+            List.of("msg", "msg", "msg", "msg")
+        );
+        
+        List<String> output = result.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        
+        System.out.println("Completion order with failures: " + output);
+        
+        // Only 3 successful services
+        assertEquals(3, output.size());
+        assertFalse(output.stream().anyMatch(s -> s.startsWith("S2:")));
+    }
 }
