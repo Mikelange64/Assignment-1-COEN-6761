@@ -344,4 +344,167 @@ public class AsyncProcessorTest {
         
         assertTrue(exception.getCause() instanceof IllegalArgumentException);
     }
+
+    // ============================================================================
+    // TASK C: FAIL-SOFT POLICY TESTS
+    // ============================================================================
+    
+    /**
+     * Test: All services succeed
+     * Expected: All results returned, no fallback used
+     */
+    @Test
+    public void testFailSoft_allServicesSucceed() throws Exception {
+        Microservice s1 = new Microservice("Service1");
+        Microservice s2 = new Microservice("Service2");
+        Microservice s3 = new Microservice("Service3");
+        
+        AsyncProcessor processor = new AsyncProcessor();
+        
+        CompletableFuture<String> result = processor.processAsyncFailSoft(
+            List.of(s1, s2, s3),
+            List.of("msg1", "msg2", "msg3"),
+            "FALLBACK"
+        );
+        
+        String output = result.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertEquals("Service1:MSG1 Service2:MSG2 Service3:MSG3", output);
+        assertFalse(output.contains("FALLBACK"));
+    }
+    
+    /**
+     * Test: One service fails
+     * Expected: Fallback value used for failed service, operation completes normally
+     */
+    @Test
+    public void testFailSoft_oneServiceFails() throws Exception {
+        Microservice s1 = new Microservice("Service1");
+        Microservice s2 = new Microservice("Service2", true, "Service2 failed");
+        Microservice s3 = new Microservice("Service3");
+        
+        AsyncProcessor processor = new AsyncProcessor();
+        
+        CompletableFuture<String> result = processor.processAsyncFailSoft(
+            List.of(s1, s2, s3),
+            List.of("msg1", "msg2", "msg3"),
+            "FALLBACK"
+        );
+        
+        // Should complete normally (no exception)
+        String output = result.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        
+        assertEquals("Service1:MSG1 FALLBACK Service3:MSG3", output);
+        assertTrue(output.contains("FALLBACK"));
+    }
+    
+    /**
+     * Test: First service fails
+     * Expected: Fallback in first position
+     */
+    @Test
+    public void testFailSoft_firstServiceFails() throws Exception {
+        Microservice s1 = new Microservice("Service1", true, "Service1 failed");
+        Microservice s2 = new Microservice("Service2");
+        Microservice s3 = new Microservice("Service3");
+        
+        AsyncProcessor processor = new AsyncProcessor();
+        
+        CompletableFuture<String> result = processor.processAsyncFailSoft(
+            List.of(s1, s2, s3),
+            List.of("msg1", "msg2", "msg3"),
+            "UNAVAILABLE"
+        );
+        
+        String output = result.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertEquals("UNAVAILABLE Service2:MSG2 Service3:MSG3", output);
+    }
+    
+    /**
+     * Test: Multiple services fail
+     * Expected: Multiple fallback values in result
+     */
+    @Test
+    public void testFailSoft_multipleServicesFail() throws Exception {
+        Microservice s1 = new Microservice("Service1", true, "Service1 failed");
+        Microservice s2 = new Microservice("Service2");
+        Microservice s3 = new Microservice("Service3", true, "Service3 failed");
+        
+        AsyncProcessor processor = new AsyncProcessor();
+        
+        CompletableFuture<String> result = processor.processAsyncFailSoft(
+            List.of(s1, s2, s3),
+            List.of("msg1", "msg2", "msg3"),
+            "ERROR"
+        );
+        
+        String output = result.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertEquals("ERROR Service2:MSG2 ERROR", output);
+    }
+    
+    /**
+     * Test: All services fail
+     * Expected: All fallback values, operation completes normally
+     */
+    @Test
+    public void testFailSoft_allServicesFail() throws Exception {
+        Microservice s1 = new Microservice("Service1", true, "Service1 failed");
+        Microservice s2 = new Microservice("Service2", true, "Service2 failed");
+        Microservice s3 = new Microservice("Service3", true, "Service3 failed");
+        
+        AsyncProcessor processor = new AsyncProcessor();
+        
+        CompletableFuture<String> result = processor.processAsyncFailSoft(
+            List.of(s1, s2, s3),
+            List.of("msg1", "msg2", "msg3"),
+            "N/A"
+        );
+        
+        // Should complete normally even though all services failed
+        String output = result.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertEquals("N/A N/A N/A", output);
+    }
+    
+    /**
+     * Test: Custom fallback values
+     * Expected: Custom fallback used appropriately
+     */
+    @Test
+    public void testFailSoft_customFallbackValue() throws Exception {
+        Microservice s1 = new Microservice("Service1");
+        Microservice s2 = new Microservice("Service2", true, "Service2 failed");
+        
+        AsyncProcessor processor = new AsyncProcessor();
+        
+        CompletableFuture<String> result = processor.processAsyncFailSoft(
+            List.of(s1, s2),
+            List.of("data", "data"),
+            "SERVICE_DEGRADED"
+        );
+        
+        String output = result.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertEquals("Service1:DATA SERVICE_DEGRADED", output);
+    }
+    
+    /**
+     * Test: Invalid input (mismatched list sizes)
+     * Expected: Exception
+     */
+    @Test
+    public void testFailSoft_invalidInput_mismatchedLists() {
+        Microservice s1 = new Microservice("Service1");
+        
+        AsyncProcessor processor = new AsyncProcessor();
+        
+        CompletableFuture<String> result = processor.processAsyncFailSoft(
+            List.of(s1),
+            List.of(),  // Empty messages list
+            "FALLBACK"
+        );
+        
+        ExecutionException exception = assertThrows(ExecutionException.class, () -> {
+            result.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        });
+        
+        assertTrue(exception.getCause() instanceof IllegalArgumentException);
+    }
 }
